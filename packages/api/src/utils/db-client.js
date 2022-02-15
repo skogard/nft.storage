@@ -59,7 +59,8 @@ export class DBClient {
     id,
     magic_link_id,
     github_id,
-    keys:auth_key_user_id_fkey(user_id,id,name,secret)
+    keys:auth_key_user_id_fkey(user_id,id,name,secret),
+    tags:user_tag_user_id_fkey(user_id,id,tag,value)
     `
       )
       .or(`magic_link_id.eq.${id},github_id.eq.${id}`)
@@ -372,6 +373,34 @@ export class DBClient {
 
     if (!data) {
       throw new Error('Auth key not created.')
+    }
+
+    return data
+  }
+
+  /**
+   * Create a new user tag
+   *
+   * @param {Object} tag
+   * @param {number} tag.user_id
+   * @param {string} tag.tag
+   * @param {string} tag.value
+   * @param {string} tag.value_type
+   * @param {string} tag.inserted_at
+   * @param {string} tag.reason
+   */
+  async createUserTag(tag) {
+    /** @type {PostgrestQueryBuilder<definitions['user_tag']>} */
+    const query = this.client.from('user_tag')
+
+    const { data, error } = await query.upsert(tag).single()
+
+    if (error) {
+      throw new DBError(error)
+    }
+
+    if (!data) {
+      throw new Error('User tag not created.')
     }
 
     return data
