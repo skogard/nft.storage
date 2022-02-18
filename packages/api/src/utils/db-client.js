@@ -379,34 +379,6 @@ export class DBClient {
   }
 
   /**
-   * Create a new user tag
-   *
-   * @param {Object} tag
-   * @param {number} tag.user_id
-   * @param {string} tag.tag
-   * @param {string} tag.value
-   * @param {string} tag.value_type
-   * @param {string} tag.inserted_at
-   * @param {string} tag.reason
-   */
-  async createUserTag(tag) {
-    /** @type {PostgrestQueryBuilder<definitions['user_tag']>} */
-    const query = this.client.from('user_tag')
-
-    const { data, error } = await query.upsert(tag).single()
-
-    if (error) {
-      throw new DBError(error)
-    }
-
-    if (!data) {
-      throw new Error('User tag not created.')
-    }
-
-    return data
-  }
-
-  /**
    * List auth keys
    *
    * @param {number} userId
