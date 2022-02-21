@@ -249,6 +249,14 @@ export async function metricsGet(request, env, ctx) {
           ] || 0
         }`
     ),
+    `# HELP nftgateway_responses_mime_type_total Total of requests per mime type`,
+    `# TYPE nftgateway_responses_mime_type_total conter`,
+    ...Object.keys(
+      metricsCollected.summaryMetrics.totalResponsesByMimeType
+    ).map(
+      (type) =>
+        `nftgateway_responses_mime_type_total{type="${type}",env="${env.ENV}"} ${metricsCollected.summaryMetrics.totalResponsesByMimeType[type]}`
+    ),
     `# HELP nftgateway_responses_content_length_total Total of requests per content length delivered bucket`,
     `# TYPE nftgateway_responses_content_length_total histogram`,
     ...contentLengthHistogram.map(
@@ -282,6 +290,18 @@ export async function metricsGet(request, env, ctx) {
             metricsCollected.summaryMetrics.totalResponsesByContentStatus[
               status
             ] || 0
+          }`
+      )
+      .join('\n'),
+    `# HELP nftgateway_responses_by_query_type_total total of responses by query status. Either CID or CID+PATH.`,
+    `# TYPE nftgateway_responses_by_query_type_total counter`,
+    Object.keys(metricsCollected.summaryMetrics.totalResponsesByQueryType)
+      .map(
+        (type) =>
+          `nftgateway_responses_by_query_type_total{env="${
+            env.ENV
+          }",type="${type}"} ${
+            metricsCollected.summaryMetrics.totalResponsesByQueryType[type] || 0
           }`
       )
       .join('\n'),

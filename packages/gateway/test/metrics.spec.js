@@ -137,6 +137,58 @@ test('Gets Metrics content', async (t) => {
   })
 })
 
+test('gets Metrics from content mime type', async (t) => {
+  const { mf } = t.context
+
+  const p = await mf.dispatchFetch(
+    'http://bafkreidyeivj7adnnac6ljvzj2e3rd5xdw3revw4da7mx2ckrstapoupoq.ipfs.localhost:8787'
+  )
+
+  await p.waitUntil()
+
+  const response = await mf.dispatchFetch('http://localhost:8787/metrics')
+  const metricsResponse = await response.text()
+
+  t.is(
+    metricsResponse.includes(
+      `nftgateway_responses_mime_type_total{type="text/plain",env="test"} 1`
+    ),
+    true
+  )
+})
+
+test('gets Metrics from query type', async (t) => {
+  const { mf } = t.context
+
+  const p = await Promise.all([
+    mf.dispatchFetch(
+      'http://bafybeih74zqc6kamjpruyra4e4pblnwdpickrvk4hvturisbtveghflovq.ipfs.localhost:8787'
+    ),
+    mf.dispatchFetch(
+      'https://bafybeih74zqc6kamjpruyra4e4pblnwdpickrvk4hvturisbtveghflovq.ipfs.localhost:8787/path'
+    ),
+  ])
+
+  // Wait for waitUntil
+  await Promise.all(p.map((p) => p.waitUntil()))
+
+  const response = await mf.dispatchFetch('http://localhost:8787/metrics')
+  const metricsResponse = await response.text()
+
+  t.is(
+    metricsResponse.includes(
+      `nftgateway_responses_by_query_type_total{env="test",type="CID"} 1`
+    ),
+    true
+  )
+  t.is(
+    metricsResponse.includes(
+      `nftgateway_responses_by_query_type_total{env="test",type="CID+PATH"} 1`
+    ),
+    true
+  )
+})
+
 test('Gets Metrics from faster gateway', async (t) => {
   const { mf } = t.context
 

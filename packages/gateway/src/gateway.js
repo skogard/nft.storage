@@ -39,6 +39,7 @@ export async function gatewayGet(request, env, ctx) {
   const startTs = Date.now()
   const reqUrl = new URL(request.url)
   const cid = getCidFromSubdomainUrl(reqUrl)
+  const pathname = reqUrl.pathname
 
   const cache = caches.default
   let res = await cache.match(request.url)
@@ -48,12 +49,13 @@ export async function gatewayGet(request, env, ctx) {
     const responseTime = Date.now() - startTs
 
     ctx.waitUntil(
-      updateSummaryCacheMetrics(request, env, res, responseTime, cid)
+      updateSummaryCacheMetrics(request, env, res, responseTime, cid, {
+        pathname,
+      })
     )
     return res
   }
 
-  const pathname = reqUrl.pathname
   const gatewayReqs = env.ipfsGateways.map((gwUrl) =>
     gatewayFetch(gwUrl, cid, request, env, {
       pathname,
@@ -90,7 +92,9 @@ export async function gatewayGet(request, env, ctx) {
         )
 
         await Promise.all([
-          storeWinnerGwResponse(request, env, winnerGwResponse, cid),
+          storeWinnerGwResponse(request, env, winnerGwResponse, cid, {
+            pathname,
+          }),
           settleGatewayRequests(),
           // Cache request URL in Cloudflare CDN if smaller than CF_CACHE_MAX_OBJECT_SIZE
           contentLengthMb <= CF_CACHE_MAX_OBJECT_SIZE &&
@@ -172,11 +176,19 @@ export async function gatewayGet(request, env, ctx) {
  * @param {Env} env
  * @param {GatewayResponse} gwResponse
  * @param {string} cid
+ * @param {Object} [options]
+ * @param {string} [options.pathname]
  */
-async function storeWinnerGwResponse(request, env, gwResponse, cid) {
+async function storeWinnerGwResponse(
+  request,
+  env,
+  gwResponse,
+  cid,
+  { pathname } = {}
+) {
   await Promise.all([
     updateGatewayMetrics(request, env, gwResponse, true),
-    updateSummaryWinnerMetrics(request, env, cid, { gwResponse }),
+    updateSummaryWinnerMetrics(request, env, cid, { gwResponse, pathname }),
   ])
 }
 
@@ -264,13 +276,16 @@ function getHeaders(request) {
  * @param {Response} response
  * @param {number} responseTime
  * @param {string} cid
+ * @param {Object} [options]
+ * @param {string} [options.pathname]
  */
 async function updateSummaryCacheMetrics(
   request,
   env,
   response,
   responseTime,
-  cid
+  cid,
+  { pathname } = {}
 ) {
   // Get durable object for gateway
   const id = env.summaryMetricsDurable.idFromName(SUMMARY_METRICS_ID)
@@ -281,7 +296,9 @@ async function updateSummaryCacheMetrics(
     cid,
     errored: false,
     contentLength: Number(response.headers.get('content-length')),
+    contentType: response.headers.get('content-type'),
     responseTime,
+    pathname,
   }
 
   await stub.fetch(
@@ -326,12 +343,13 @@ async function getGatewayRateLimitState(request, env, gwUrl) {
  * @param {Object} options
  * @param {GatewayResponse} [options.gwResponse]
  * @param {boolean} [options.errored]
+ * @param {string} [options.pathname]
  */
 async function updateSummaryWinnerMetrics(
   request,
   env,
   cid,
-  { gwResponse, errored = false }
+  { gwResponse, errored = false, pathname }
 ) {
   // Get durable object for gateway
   const id = env.summaryMetricsDurable.idFromName(SUMMARY_METRICS_ID)
@@ -341,8 +359,10 @@ async function updateSummaryWinnerMetrics(
   const fetchStats = {
     cid,
     errored,
-    responseTime: gwResponse?.responseTime,
     contentLength: Number(gwResponse?.response.headers.get('content-length')),
+    contentType: gwResponse?.response.headers.get('content-type'),
+    responseTime: gwResponse?.responseTime,
+    pathname,
   }
 
   await stub.fetch(getDurableRequestUrl(request, 'metrics/winner', fetchStats))
