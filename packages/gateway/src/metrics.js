@@ -298,6 +298,35 @@ export async function metricsGet(request, env, ctx) {
           }`
       )
       .join('\n'),
+    `# HELP nftgateway_responses_by_ipld_codec_total total of responses by ipld codec.`,
+    `# TYPE nftgateway_responses_by_ipld_codec_total counter`,
+    Object.keys(metricsCollected.summaryMetrics.totalResponsesByIpldCodec)
+      .map(
+        (codec) =>
+          `nftgateway_responses_by_ipld_codec_total{env="${
+            env.ENV
+          }",codec="${codec}"} ${
+            metricsCollected.summaryMetrics.totalResponsesByIpldCodec[codec] ||
+            0
+          }`
+      )
+      .join('\n'),
+    `# HELP nftgateway_responses_by_multihash_function_total total of responses by multihash function.`,
+    `# TYPE nftgateway_responses_by_multihash_function_total counter`,
+    Object.keys(
+      metricsCollected.summaryMetrics.totalResponsesByMultihashFunction
+    )
+      .map(
+        (fn) =>
+          `nftgateway_responses_by_multihash_function_total{env="${
+            env.ENV
+          }",function="${fn}"} ${
+            metricsCollected.summaryMetrics.totalResponsesByMultihashFunction[
+              fn
+            ] || 0
+          }`
+      )
+      .join('\n'),
     `# HELP nftgateway_responses_per_time_by_status_total total of responses by status per response time bucket`,
     `# TYPE nftgateway_responses_per_time_by_status_total histogram`,
     ...responseTimeHistogram.map((t) => {

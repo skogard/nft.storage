@@ -1,3 +1,5 @@
+import multicodec from 'multicodec'
+import { CID } from 'multiformats/cid'
 import { NFTStorage } from 'nft.storage'
 import { PinStatusMap } from '../utils/pins.js'
 import {
@@ -19,10 +21,11 @@ import {
  * @property {BigInt} totalCachedContentLengthBytes total content length of cached responses
  * @property {Record<ContentStatus, number>} totalResponsesByContentStatus
  * @property {Record<PinStatus, number>} totalResponsesByPinStatus
+ * @property {Record<string, number>} totalResponsesByIpldCodec
+ * @property {Record<string, number>} totalResponsesByMultihashFunction
  * @property {Record<string, number>} contentLengthHistogram
  * @property {Record<string, number>} responseTimeHistogram
  * @property {Record<PinStatus, Record<string, number>>} responseTimeHistogramByPinStatus
- *
  * @typedef {Object} FetchStats
  * @property {string} cid fetched CID
  * @property {boolean} errored fetched CID request errored
@@ -56,6 +59,11 @@ const RESPONSE_TIME_HISTOGRAM_BY_PIN_STATUS_ID =
 const TOTAL_RESPONSES_BY_CONTENT_STATUS_ID = 'totalResponsesByContentStatus'
 // Key to track responses by pin status
 const TOTAL_RESPONSES_BY_PIN_STATUS_ID = 'totalResponsesByPinStatus'
+// Key to track responses by ipld codec
+const TOTAL_RESPONSES_BY_IPLD_CODEC_ID = 'totalResponsesByIpldCodec'
+// Key to track responses by multihash function
+const TOTAL_RESPONSES_BY_MULTIHASH_FUNCTION_ID =
+  'totalResponsesByMultihashFunction'
 
 /**
  * Durable Object for keeping summary metrics of gateway.nft.storage
@@ -102,6 +110,14 @@ export class SummaryMetrics0 {
         (await this.state.storage.get(TOTAL_RESPONSES_BY_PIN_STATUS_ID)) ||
         createResponsesByPinStatusObject()
       /** @type {Record<string, number>} */
+      this.totalResponsesByIpldCodec =
+        (await this.state.storage.get(TOTAL_RESPONSES_BY_IPLD_CODEC_ID)) || {}
+      /** @type {Record<string, number>} */
+      this.totalResponsesByMultihashFunction =
+        (await this.state.storage.get(
+          TOTAL_RESPONSES_BY_MULTIHASH_FUNCTION_ID
+        )) || {}
+      /** @type {Record<string, number>} */
       this.contentLengthHistogram =
         (await this.state.storage.get(CONTENT_LENGTH_HISTOGRAM_ID)) ||
         createContentLengthHistogramObject()
@@ -139,6 +155,9 @@ export class SummaryMetrics0 {
                 this.totalCachedContentLengthBytes.toString(),
               totalResponsesByContentStatus: this.totalResponsesByContentStatus,
               totalResponsesByPinStatus: this.totalResponsesByPinStatus,
+              totalResponsesByIpldCodec: this.totalResponsesByIpldCodec,
+              totalResponsesByMultihashFunction:
+                this.totalResponsesByMultihashFunction,
               contentLengthHistogram: this.contentLengthHistogram,
               responseTimeHistogram: this.responseTimeHistogram,
               responseTimeHistogramByPinStatus:
@@ -164,16 +183,54 @@ export class SummaryMetrics0 {
   /**
    * @param {FetchStats} data
    */
-  async _updateCidMetrics({ cid, errored, responseTime }) {
+  async _updateCidMetrics({ cid: cidStr, errored, responseTime }) {
+    const toUpdateMetrics = []
+    const cid = CID.parse(cidStr)
+    const cidInspectObj = CID.inspectBytes(cid.bytes.subarray(0, 10))
+
+    // IPLD codec
+    const ipldCodec = multicodec.getNameFromCode(cidInspectObj.codec)
+    if (this.totalResponsesByIpldCodec[ipldCodec]) {
+      // increment one if exists, otherwise initialize it
+      this.totalResponsesByIpldCodec[ipldCodec] += 1
+    } else {
+      this.totalResponsesByIpldCodec[ipldCodec] = 1
+    }
+    toUpdateMetrics.push(() =>
+      this.state.storage.put(
+        TOTAL_RESPONSES_BY_IPLD_CODEC_ID,
+        this.totalResponsesByIpldCodec
+      )
+    )
+
+    // Multihash function
+    const multihashFunction = multicodec.getNameFromCode(
+      cidInspectObj.multihashCode
+    )
+    if (this.totalResponsesByMultihashFunction[multihashFunction]) {
+      // increment one if exists, otherwise initialize it
+      this.totalResponsesByMultihashFunction[multihashFunction] += 1
+    } else {
+      this.totalResponsesByMultihashFunction[multihashFunction] = 1
+    }
+    toUpdateMetrics.push(() =>
+      this.state.storage.put(
+        TOTAL_RESPONSES_BY_MULTIHASH_FUNCTION_ID,
+        this.totalResponsesByMultihashFunction
+      )
+    )
+
     try {
-      const statusRes = await this.nftStorageClient.check(cid)
+      const statusRes = await this.nftStorageClient.check(cidStr)
 
       if (errored) {
         this.totalErroredResponsesWithKnownContent += 1
 
-        await this.state.storage.put(
-          TOTAL_ERRORED_RESPONSES_WITH_KNOWN_CONTENT_ID,
-          this.totalErroredResponsesWithKnownContent
+        toUpdateMetrics.push(() =>
+          this.state.storage.put(
+            TOTAL_ERRORED_RESPONSES_WITH_KNOWN_CONTENT_ID,
+            this.totalErroredResponsesWithKnownContent
+          )
         )
       } else {
         this.totalResponsesByContentStatus['Stored'] += 1
@@ -189,33 +246,40 @@ export class SummaryMetrics0 {
             )
         }
 
-        await Promise.all([
+        toUpdateMetrics.push(() =>
           this.state.storage.put(
             TOTAL_RESPONSES_BY_CONTENT_STATUS_ID,
             this.totalResponsesByContentStatus
-          ),
-          pinStatus &&
-            this.state.storage.put(
-              TOTAL_RESPONSES_BY_PIN_STATUS_ID,
-              this.totalResponsesByPinStatus
-            ),
+          )
+        )
+        toUpdateMetrics.push(() =>
+          this.state.storage.put(
+            TOTAL_RESPONSES_BY_PIN_STATUS_ID,
+            this.totalResponsesByPinStatus
+          )
+        )
+        toUpdateMetrics.push(() =>
           this.state.storage.put(
             RESPONSE_TIME_HISTOGRAM_BY_PIN_STATUS_ID,
             this.responseTimeHistogramByPinStatus
-          ),
-        ])
+          )
+        )
       }
     } catch (err) {
       if (err.message === 'NFT not found') {
         // Update not existing CID
         this.totalResponsesByContentStatus['NotStored'] += 1
 
-        await this.state.storage.put(
-          TOTAL_RESPONSES_BY_CONTENT_STATUS_ID,
-          this.totalResponsesByContentStatus
+        toUpdateMetrics.push(() =>
+          this.state.storage.put(
+            TOTAL_RESPONSES_BY_CONTENT_STATUS_ID,
+            this.totalResponsesByContentStatus
+          )
         )
       }
     }
+
+    await Promise.all(toUpdateMetrics.map((fn) => fn()))
   }
 
   /**
