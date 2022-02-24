@@ -87,11 +87,11 @@ function getRateLimitingCharacteristics(gatewayUrl) {
     case 'https://ipfs.io':
       return {
         RATE_LIMIT_REQUESTS: Infinity,
-        RATE_LIMIT_TIMEFRAME: MINUTE,
+        RATE_LIMIT_TIMEFRAME: SECOND * 10,
       }
-    case 'https://cf-ipfs.com':
+    case 'https://cf.nftstorage.link':
       return {
-        RATE_LIMIT_REQUESTS: 16,
+        RATE_LIMIT_REQUESTS: Infinity,
         RATE_LIMIT_TIMEFRAME: SECOND * 10,
       }
     case 'https://nft-storage.mypinata.cloud/':
