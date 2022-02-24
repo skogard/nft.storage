@@ -13,8 +13,30 @@ import {
 const COUNT_USERS = 'SELECT COUNT(*) AS total FROM public.user'
 
 const COUNT_UPLOADS = 'SELECT COUNT(*) AS total FROM upload WHERE type = $1'
-const COUNT_ALL_UPLOADS_PAST_7_DAYS =
-  'SELECT COUNT(*) AS total FROM upload WHERE inserted_at > CURRENT_DATE - 7'
+
+const COUNT_TOTAL_UPLOADS = 'SELECT COUNT(*) AS total FROM upload'
+// This is a rolling 7 day date window of total uploads
+const UPLOAD_7_DAY_GROWTH = `select 
+  ((
+      SELECT 
+        "count"(*) as val2 
+      from 
+        upload
+    )
+    -
+    (
+      SELECT 
+        "count"(*) as val1 
+      from 
+        upload
+    WHERE inserted_at < CURRENT_DATE - 7
+     )) / (
+        SELECT 
+        "count"(*) as val1 
+      from 
+        upload
+    WHERE inserted_at < CURRENT_DATE - 7
+    ) * 100 as total;`
 
 const COUNT_PINS =
   'SELECT COUNT(*) AS total FROM pin WHERE service = $1 AND status = $2'
@@ -36,7 +58,8 @@ ON CONFLICT (name) DO UPDATE
 export async function updateMetrics({ roPg, rwPg }) {
   const results = await settle([
     updateUsersCount(roPg, rwPg),
-    updateUploadsPast7DaysCount(roPg, rwPg),
+    updateUploadTotal(roPg, rwPg),
+    updateUploadWeekGrowth(roPg, rwPg),
     updateContentRootDagSizeSum(roPg, rwPg),
     ...UPLOAD_TYPES.map((t) => updateUploadsCount(roPg, rwPg, t)),
     ...PIN_SERVICES.map((svc) =>
@@ -92,14 +115,23 @@ async function updateUploadsCount(roPg, rwPg, type) {
  * @param {Client} roPg
  * @param {Client} rwPg
  */
-async function updateUploadsPast7DaysCount(roPg, rwPg) {
-  const { rows } = await roPg.query(COUNT_ALL_UPLOADS_PAST_7_DAYS)
+async function updateUploadTotal(roPg, rwPg) {
+  const { rows } = await roPg.query(COUNT_TOTAL_UPLOADS)
   if (!rows.length)
     throw new Error(`no rows returned counting past weeks uploads`)
-  await rwPg.query(UPDATE_METRIC, [
-    `uploads_all_types_past_week_total`,
-    rows[0].total,
-  ])
+  await rwPg.query(UPDATE_METRIC, [`uploads_all_types_total`, rows[0].total])
+}
+
+/**
+ * @param {Client} roPg
+ * @param {Client} rwPg
+ */
+async function updateUploadWeekGrowth(roPg, rwPg) {
+  const { rows } = await roPg.query(UPLOAD_7_DAY_GROWTH)
+  if (!rows.length)
+    throw new Error(`no rows returned counting past weeks uploads`)
+  console.log('rows', rows[0].total)
+  await rwPg.query(UPDATE_METRIC, [`uploads_weekly_growth`, rows[0].total])
 }
 
 /**
